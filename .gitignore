@@ -1,0 +1,34 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+/build
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local env files
+.env
+.env*.local
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# vercel
+.vercel
+
+# claude local settings
+.claude/settings.local.json
+
+# supplier / business data (kept out of the repo)
+*.xlsx
+*.pdf

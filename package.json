@@ -1,0 +1,26 @@
+{
+  "name": "distribution-orders",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test:parser": "node scripts/test-parser.mjs",
+    "test:reconcile": "node scripts/test-reconcile.mjs",
+    "test:office": "node scripts/test-office.mjs"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}
