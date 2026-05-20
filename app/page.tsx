@@ -147,7 +147,7 @@ export default function Page() {
 
         {client.inputKind === 'pdfs' ? (
           <>
-            <label htmlFor="poFiles">PDF de las PO (uno por PO, varios)</label>
+            <label htmlFor="poFiles">PDF de las PO del cliente Office Holdings (uno o varios)</label>
             <input
               id="poFiles"
               ref={poInputRef}
@@ -195,7 +195,7 @@ export default function Page() {
         )}
 
         <label htmlFor="ocFiles">
-          OC — Order Confirmation (PDF, opcional, una o varias)
+          OC — Order Confirmation (PDF Alohas — uno o varios)
         </label>
         <input
           id="ocFiles"
