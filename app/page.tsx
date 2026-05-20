@@ -14,6 +14,10 @@ type Status =
   | { kind: 'error'; msg: string }
   | { kind: 'success'; msg: string };
 
+// Vercel's serverless functions cap request bodies around 4.5 MB. Multipart
+// adds a few % overhead, so warn a bit earlier than the hard limit.
+const UPLOAD_SOFT_LIMIT = 4 * 1024 * 1024;
+
 export default function Page() {
   const [clientId, setClientId] = useState(CLIENTS[0].id);
   const [file, setFile] = useState<File | null>(null);
@@ -23,6 +27,12 @@ export default function Page() {
 
   const client = CLIENTS.find((c) => c.id === clientId)!;
   const ready = client.inputKind === 'pdfs' ? poFiles.length > 0 : !!file;
+
+  const totalBytes =
+    (file?.size ?? 0) +
+    poFiles.reduce((s, f) => s + f.size, 0) +
+    ocFiles.reduce((s, f) => s + f.size, 0);
+  const overLimit = totalBytes > UPLOAD_SOFT_LIMIT;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +50,13 @@ export default function Page() {
 
       const res = await fetch('/api/process', { method: 'POST', body: fd });
       if (!res.ok) {
+        // 413 doesn't always carry a body — explain it ourselves so the user
+        // knows it's a size issue, not a parser failure.
+        if (res.status === 413) {
+          throw new Error(
+            'Los archivos superan el límite del servidor (~4,5 MB). Sube los PDFs en lotes más pequeños.'
+          );
+        }
         throw new Error((await res.text()) || 'Error procesando');
       }
       const blob = await res.blob();
@@ -50,7 +67,9 @@ export default function Page() {
       const match = cd.match(/filename="(.+?)"/);
       a.download = match ? match[1] : 'output.xlsx';
       a.click();
-      URL.revokeObjectURL(url);
+      // Revoking immediately cancels the download in some Safari versions;
+      // give the browser a beat to start the transfer first.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
 
       const warnings = res.headers.get('x-warnings');
       const discrepancies = res.headers.get('x-discrepancies');
@@ -135,6 +154,14 @@ export default function Page() {
         {ocFiles.length > 0 && (
           <p className="hint">
             {ocFiles.length} OC: {ocFiles.map((f) => f.name).join(', ')}
+          </p>
+        )}
+
+        {overLimit && (
+          <p className="hint" style={{ color: '#b45309' }}>
+            Aviso: {(totalBytes / (1024 * 1024)).toFixed(1)} MB superan el
+            límite recomendado (~4 MB). El servidor puede rechazar el envío;
+            sube los PDFs en lotes más pequeños si falla.
           </p>
         )}
 

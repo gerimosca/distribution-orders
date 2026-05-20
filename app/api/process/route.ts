@@ -3,29 +3,33 @@ import * as XLSX from 'xlsx';
 import * as parsers from '@/lib/parsers/index.mjs';
 
 export const runtime = 'nodejs';
+// PDF parsing is sequential and CPU-bound; default 10s (Hobby) cuts off mid-
+// batch when several PDFs are uploaded. 60s covers realistic batches without
+// changing tier behavior (Vercel clamps to the plan's max).
+export const maxDuration = 60;
 
 // The parsers are untyped .mjs; treat the boundary as dynamic.
 const getClient = (parsers as { getClient: (id: string) => any }).getClient;
 
 export async function POST(req: Request) {
-  const form = await req.formData();
-  const clientId = form.get('client');
-  if (typeof clientId !== 'string' || !clientId) {
-    return new NextResponse('Falta el campo "client"', { status: 400 });
-  }
-  const client = getClient(clientId);
-  if (!client) {
-    return new NextResponse(`Cliente desconocido: ${clientId}`, { status: 400 });
-  }
-
-  const ocFiles = form
-    .getAll('ocFiles')
-    .filter((f): f is File => f instanceof File);
-
-  let parsed: any;
-  let downloadBase: string;
-
   try {
+    const form = await req.formData();
+    const clientId = form.get('client');
+    if (typeof clientId !== 'string' || !clientId) {
+      return new NextResponse('Falta el campo "client"', { status: 400 });
+    }
+    const client = getClient(clientId);
+    if (!client) {
+      return new NextResponse(`Cliente desconocido: ${clientId}`, { status: 400 });
+    }
+
+    const ocFiles = form
+      .getAll('ocFiles')
+      .filter((f): f is File => f instanceof File);
+
+    let parsed: any;
+    let downloadBase: string;
+
     if (client.inputKind === 'pdfs') {
       // Office Holdings: several PO PDFs are the main input.
       const poFiles = form
@@ -70,30 +74,31 @@ export async function POST(req: Request) {
       }
       downloadBase = file.name.replace(/\.[^.]+$/, '');
     }
+
+    const wb = client.build(parsed);
+    const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const discrepancyCount = parsed.discrepancies
+      ? parsed.discrepancies.rows.length
+      : 0;
+    const warnings =
+      (parsed.warehouses ?? parsed.pos ?? []).reduce(
+        (s: number, w: { warnings?: string[] }) => s + (w.warnings?.length ?? 0),
+        0
+      ) + (parsed.globalIssues?.length ?? 0);
+
+    return new NextResponse(out, {
+      status: 200,
+      headers: {
+        'content-type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'content-disposition': `attachment; filename="${downloadBase} - distribución.xlsx"`,
+        'x-warnings': String(warnings),
+        'x-discrepancies': String(discrepancyCount),
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return new NextResponse(`Error procesando: ${msg}`, { status: 500 });
   }
-
-  const wb = client.build(parsed);
-  const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-  const discrepancyCount = parsed.discrepancies
-    ? parsed.discrepancies.rows.length
-    : 0;
-  const warnings = (parsed.warehouses ?? parsed.pos ?? []).reduce(
-    (s: number, w: { warnings?: string[] }) => s + (w.warnings?.length ?? 0),
-    0
-  );
-
-  return new NextResponse(out, {
-    status: 200,
-    headers: {
-      'content-type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'content-disposition': `attachment; filename="${downloadBase} - distribución.xlsx"`,
-      'x-warnings': String(warnings),
-      'x-discrepancies': String(discrepancyCount),
-    },
-  });
 }
