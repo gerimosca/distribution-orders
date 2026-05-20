@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 type InputKind = 'excel' | 'pdfs';
 const CLIENTS: { id: string; name: string; inputKind: InputKind }[] = [
@@ -18,12 +18,41 @@ type Status =
 // adds a few % overhead, so warn a bit earlier than the hard limit.
 const UPLOAD_SOFT_LIMIT = 4 * 1024 * 1024;
 
+// Heuristic file classification by name. Used to flag obvious mis-uploads
+// (a PO07 file dropped in the OC field, or vice versa) so the user catches
+// it before submitting. "unknown" doesn't trigger any warning.
+function classifyFile(name: string): 'po' | 'oc' | 'unknown' {
+  if (/^PO\d/i.test(name)) return 'po';
+  if (/^Order\s*-?\s*S\d/i.test(name)) return 'oc';
+  return 'unknown';
+}
+
+// Merge new files into an existing list without duplicates (by name+size).
+// Lets the user click the input several times to add files in batches —
+// the previous single-shot behavior silently dropped earlier selections,
+// which caused the "Excel only has 4 OC tabs" mishap.
+function mergeFiles(existing: File[], added: File[]): File[] {
+  const seen = new Set(existing.map((f) => `${f.name}:${f.size}`));
+  const out = [...existing];
+  for (const f of added) {
+    const key = `${f.name}:${f.size}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 export default function Page() {
   const [clientId, setClientId] = useState(CLIENTS[0].id);
   const [file, setFile] = useState<File | null>(null);
   const [poFiles, setPoFiles] = useState<File[]>([]);
   const [ocFiles, setOcFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+
+  const poInputRef = useRef<HTMLInputElement>(null);
+  const ocInputRef = useRef<HTMLInputElement>(null);
 
   const client = CLIENTS.find((c) => c.id === clientId)!;
   const ready = client.inputKind === 'pdfs' ? poFiles.length > 0 : !!file;
@@ -33,6 +62,9 @@ export default function Page() {
     poFiles.reduce((s, f) => s + f.size, 0) +
     ocFiles.reduce((s, f) => s + f.size, 0);
   const overLimit = totalBytes > UPLOAD_SOFT_LIMIT;
+
+  const misfiledInPo = poFiles.filter((f) => classifyFile(f.name) === 'oc');
+  const misfiledInOc = ocFiles.filter((f) => classifyFile(f.name) === 'po');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -118,14 +150,35 @@ export default function Page() {
             <label htmlFor="poFiles">PDF de las PO (uno por PO, varios)</label>
             <input
               id="poFiles"
+              ref={poInputRef}
               type="file"
               accept=".pdf"
               multiple
-              onChange={(e) => setPoFiles(e.target.files ? Array.from(e.target.files) : [])}
+              onChange={(e) => {
+                const added = e.target.files ? Array.from(e.target.files) : [];
+                setPoFiles((prev) => mergeFiles(prev, added));
+                // Clear the input so re-selecting the same file fires onChange.
+                if (poInputRef.current) poInputRef.current.value = '';
+              }}
             />
             {poFiles.length > 0 && (
               <p className="hint">
-                {poFiles.length} PO: {poFiles.map((f) => f.name).join(', ')}
+                {poFiles.length} PO seleccionado(s){' '}
+                <button
+                  type="button"
+                  onClick={() => setPoFiles([])}
+                  style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}
+                >
+                  (limpiar)
+                </button>
+                : {poFiles.map((f) => f.name).join(', ')}
+              </p>
+            )}
+            {misfiledInPo.length > 0 && (
+              <p className="hint" style={{ color: '#b45309' }}>
+                Aviso: {misfiledInPo.length} archivo(s) en este campo
+                parecen Order Confirmations ({misfiledInPo.map((f) => f.name).join(', ')}).
+                Muévelos al campo "OC" de abajo.
               </p>
             )}
           </>
@@ -146,14 +199,34 @@ export default function Page() {
         </label>
         <input
           id="ocFiles"
+          ref={ocInputRef}
           type="file"
           accept=".pdf"
           multiple
-          onChange={(e) => setOcFiles(e.target.files ? Array.from(e.target.files) : [])}
+          onChange={(e) => {
+            const added = e.target.files ? Array.from(e.target.files) : [];
+            setOcFiles((prev) => mergeFiles(prev, added));
+            if (ocInputRef.current) ocInputRef.current.value = '';
+          }}
         />
         {ocFiles.length > 0 && (
           <p className="hint">
-            {ocFiles.length} OC: {ocFiles.map((f) => f.name).join(', ')}
+            {ocFiles.length} OC seleccionado(s){' '}
+            <button
+              type="button"
+              onClick={() => setOcFiles([])}
+              style={{ background: 'none', border: 'none', color: '#0070f3', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}
+            >
+              (limpiar)
+            </button>
+            : {ocFiles.map((f) => f.name).join(', ')}
+          </p>
+        )}
+        {misfiledInOc.length > 0 && (
+          <p className="hint" style={{ color: '#b45309' }}>
+            Aviso: {misfiledInOc.length} archivo(s) en este campo parecen
+            POs ({misfiledInOc.map((f) => f.name).join(', ')}).
+            Muévelos al campo "PO" de arriba.
           </p>
         )}
 
