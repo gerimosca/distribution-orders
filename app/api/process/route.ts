@@ -52,6 +52,7 @@ export async function POST(req: Request) {
         }
         parsed.discrepancies = client.reconcile(ocs, pos);
         if (client.ocPricingBySku) parsed.ocPricing = client.ocPricingBySku(ocs).pricing;
+        if (client.ocsBySku) parsed.ocBySku = client.ocsBySku(ocs);
       }
       downloadBase = `${client.name} - POs`;
     } else {
