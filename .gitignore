@@ -29,6 +29,8 @@ yarn-error.log*
 # claude local settings
 .claude/settings.local.json
 
-# supplier / business data (kept out of the repo)
+# supplier / business data + generated outputs (kept out of the repo)
 *.xlsx
 *.pdf
+*.zip
+dev-server.log

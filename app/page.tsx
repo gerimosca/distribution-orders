@@ -3,9 +3,15 @@
 import { useRef, useState } from 'react';
 
 type InputKind = 'excel' | 'pdfs';
-const CLIENTS: { id: string; name: string; inputKind: InputKind }[] = [
+const CLIENTS: { id: string; name: string; inputKind: InputKind; excelLabel?: string }[] = [
   { id: 'kurt-geiger', name: 'Kurt Geiger', inputKind: 'excel' },
   { id: 'office-holdings', name: 'Office Holdings', inputKind: 'pdfs' },
+  {
+    id: 'john-lewis',
+    name: 'John Lewis',
+    inputKind: 'excel',
+    excelLabel: 'Fichero de distribución de John Lewis (Excel)',
+  },
 ];
 
 type Status =
@@ -66,13 +72,14 @@ export default function Page() {
   const misfiledInPo = poFiles.filter((f) => classifyFile(f.name) === 'oc');
   const misfiledInOc = ocFiles.filter((f) => classifyFile(f.name) === 'po');
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent, output: 'xlsx' | 'zip' = 'xlsx') {
     e.preventDefault();
     if (!ready) return;
     setStatus({ kind: 'loading' });
     try {
       const fd = new FormData();
       fd.append('client', clientId);
+      fd.append('output', output);
       if (client.inputKind === 'pdfs') {
         for (const p of poFiles) fd.append('poFiles', p);
       } else if (file) {
@@ -184,7 +191,7 @@ export default function Page() {
           </>
         ) : (
           <>
-            <label htmlFor="file">Fichero del cliente (Excel)</label>
+            <label htmlFor="file">{client.excelLabel ?? 'Fichero del cliente (Excel)'}</label>
             <input
               id="file"
               type="file"
@@ -238,9 +245,19 @@ export default function Page() {
           </p>
         )}
 
-        <button type="submit" disabled={!ready || status.kind === 'loading'}>
-          {status.kind === 'loading' ? 'Procesando...' : 'Generar Excel'}
-        </button>
+        <div className="actions">
+          <button type="submit" disabled={!ready || status.kind === 'loading'}>
+            {status.kind === 'loading' ? 'Procesando...' : 'Generar Excel'}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!ready || status.kind === 'loading'}
+            onClick={(e) => handleSubmit(e, 'zip')}
+          >
+            Descargar CSVs (ZIP)
+          </button>
+        </div>
       </form>
 
       {status.kind === 'error' && <div className="status error">{status.msg}</div>}

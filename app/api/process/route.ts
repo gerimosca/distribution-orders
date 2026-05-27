@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import * as parsers from '@/lib/parsers/index.mjs';
+import { createZip, safeFileName } from '@/lib/zip.mjs';
 
 export const runtime = 'nodejs';
 // PDF parsing is sequential and CPU-bound; default 10s (Hobby) cuts off mid-
@@ -26,6 +27,10 @@ export async function POST(req: Request) {
     const ocFiles = form
       .getAll('ocFiles')
       .filter((f): f is File => f instanceof File);
+
+    // Output format: the default Excel workbook, or a ZIP bundling each tab as
+    // its own .csv (requested via the "Descargar CSVs (ZIP)" button).
+    const output = form.get('output') === 'zip' ? 'zip' : 'xlsx';
 
     let parsed: any;
     let downloadBase: string;
@@ -69,15 +74,21 @@ export async function POST(req: Request) {
           const buf = Buffer.from(await oc.arrayBuffer());
           ocs.push(await client.parseOc(buf, oc.name.replace(/\.[^.]+$/, '')));
         }
-        const excelTotals = client.excelTotalsBySku(parsed);
-        parsed.discrepancies = client.reconcile(excelTotals, ocs);
+        if (client.reconcileMode === 'per-po') {
+          // John Lewis: the Excel is already split per PO, so reconcile the
+          // parsed POs against the OC (per-PO columns).
+          parsed.discrepancies = client.reconcile(ocs, parsed.pos);
+        } else {
+          // Kurt Geiger: reconcile a single Excel total per SKU against the OC.
+          const excelTotals = client.excelTotalsBySku(parsed);
+          parsed.discrepancies = client.reconcile(excelTotals, ocs);
+        }
         if (client.ocPricingBySku) parsed.ocPricing = client.ocPricingBySku(ocs).pricing;
       }
       downloadBase = file.name.replace(/\.[^.]+$/, '');
     }
 
     const wb = client.build(parsed);
-    const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
     const discrepancyCount = parsed.discrepancies
       ? parsed.discrepancies.rows.length
@@ -88,14 +99,37 @@ export async function POST(req: Request) {
         0
       ) + (parsed.globalIssues?.length ?? 0);
 
+    const commonHeaders = {
+      'x-warnings': String(warnings),
+      'x-discrepancies': String(discrepancyCount),
+    };
+
+    if (output === 'zip') {
+      // One CSV per workbook tab. A UTF-8 BOM makes Excel open the CSV with the
+      // right encoding (accents, ✔, ≠) instead of mojibake.
+      const files = wb.SheetNames.map((name: string) => ({
+        name: `${safeFileName(name)}.csv`,
+        data: '﻿' + XLSX.utils.sheet_to_csv(wb.Sheets[name]),
+      }));
+      const zip = createZip(files);
+      return new NextResponse(zip, {
+        status: 200,
+        headers: {
+          ...commonHeaders,
+          'content-type': 'application/zip',
+          'content-disposition': `attachment; filename="${downloadBase} - distribución (CSV).zip"`,
+        },
+      });
+    }
+
+    const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     return new NextResponse(out, {
       status: 200,
       headers: {
+        ...commonHeaders,
         'content-type':
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'content-disposition': `attachment; filename="${downloadBase} - distribución.xlsx"`,
-        'x-warnings': String(warnings),
-        'x-discrepancies': String(discrepancyCount),
       },
     });
   } catch (err) {
